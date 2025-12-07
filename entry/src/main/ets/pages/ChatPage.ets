@@ -98,6 +98,9 @@ struct ChatPage {
             .height(40)
             .borderRadius(20)
             .margin({ right: 10 })
+            .onClick(() => {
+              router.pushUrl({ url: 'pages/ProfilePage' });
+            })
 
           Column() {
             Text(this.userInfo?.username || '用户')
