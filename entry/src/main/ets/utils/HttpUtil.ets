@@ -18,6 +18,8 @@ export class HttpUtil {
   ): Promise<http.HttpResponse> {
     const fullUrl = ApiConstants.BASE_URL + url;
     const httpRequest = http.createHttp();
+    let buffer = '';
+    const textDecoder = util.TextDecoder.create('utf-8');
 
     try {
       // 构建请求头
@@ -167,7 +169,14 @@ export class HttpUtil {
   }
 
   /**
-   * SSE 流式请求（用于流式聊天）
+   * SSE 流式请求（改为普通请求后模拟流式）
+   * 参考 Aiask 项目实现：请求完整响应 -> 前端模拟打字机效果
+   * 这种方式在鸿蒙 NEXT 上兼容性最好，避免了 buffering 问题
+   */
+  /**
+   * SSE 流式请求
+   * 注意：鸿蒙的HTTP模块会等待请求完成后才返回，无法实现真正的流式接收
+   * 因此我们从response.result中获取完整数据，然后模拟流式输出效果
    */
   static async streamRequest(
     url: string,
@@ -179,10 +188,13 @@ export class HttpUtil {
     const fullUrl = ApiConstants.BASE_URL + url;
     const httpRequest = http.createHttp();
 
+    console.info('[SSE] 开始流式请求:', fullUrl);
+    console.info('[SSE] 请求参数:', JSON.stringify(params));
+
     try {
-      // 构建请求头
       const headers: Record<string, string> = {
-        'Accept': 'text/event-stream'
+        'Accept': 'text/event-stream',
+        'Content-Type': 'application/json'
       };
 
       const token = await StorageUtil.getToken();
@@ -190,57 +202,89 @@ export class HttpUtil {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      // 将参数拼接到 URL（GET 请求）
-      const entries = Object.entries(params);
-      const queryParts: string[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        const key = entries[i][0];
-        const value = entries[i][1];
-        queryParts.push(`${key}=${encodeURIComponent(String(value))}`);
-      }
-      const requestUrl = `${fullUrl}?${queryParts.join('&')}`;
-
-      // 监听数据接收事件
-      httpRequest.on('dataReceive', (data: ArrayBuffer) => {
-        try {
-          const textDecoder = util.TextDecoder.create('utf-8');
-          const text = textDecoder.decodeWithStream(new Uint8Array(data), { stream: false });
-          
-          // 解析 SSE 格式：data: xxx\n\n
-          const lines = text.split('\n');
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            if (line.startsWith('data: ')) {
-              const content = line.substring(6).trim();
-              if (content && content !== '[DONE]') {
-                onMessage(content);
-              }
-            }
-          }
-        } catch (err) {
-          console.error('Parse SSE data failed:', JSON.stringify(err));
-        }
-      });
-
-      // 监听完成事件
-      httpRequest.on('dataEnd', () => {
-        onComplete();
-        httpRequest.destroy();
-      });
-
       // 发送请求
-      await httpRequest.request(requestUrl, {
-        method: http.RequestMethod.GET,
+      console.info('[SSE] 发送HTTP请求');
+      const response = await httpRequest.request(fullUrl, {
+        method: http.RequestMethod.POST,
         header: headers,
-        expectDataType: http.HttpDataType.ARRAY_BUFFER,
+        extraData: JSON.stringify(params),
+        expectDataType: http.HttpDataType.STRING,
         connectTimeout: 60000,
         readTimeout: 60000
       });
 
+      console.info('[SSE] 请求完成，状态码:', response.responseCode);
+
+      if (response.responseCode === 200) {
+        const responseText = response.result as string;
+        console.info('[SSE] 收到响应数据，总长度:', responseText.length);
+        console.debug('[SSE] 响应内容:', responseText);
+
+        // 解析SSE格式的响应
+        const lines = responseText.split('\n');
+        let dataChunks: string[] = [];
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.length === 0) continue;
+
+          console.debug('[SSE] 处理行:', trimmedLine);
+
+          if (trimmedLine.startsWith('data:')) {
+            let content = trimmedLine.substring(5);
+            // 去除 data: 后可能存在的首个空格
+            if (content.startsWith(' ')) {
+              content = content.substring(1);
+            }
+
+            console.debug('[SSE] 提取内容:', content);
+
+            if (content && content !== '[DONE]') {
+              dataChunks.push(content);
+            } else if (content === '[DONE]') {
+              console.info('[SSE] 收到结束标记 [DONE]');
+            }
+          }
+        }
+
+        console.info('[SSE] 解析完成，共', dataChunks.length, '个数据块');
+
+        // 模拟流式输出效果：逐个发送数据块
+        if (dataChunks.length > 0) {
+          console.info('[SSE] 准备调用onMessage回调，回调类型:', typeof onMessage);
+          for (let i = 0; i < dataChunks.length; i++) {
+            const chunk = dataChunks[i];
+            console.info('[SSE] 发送数据块', i + 1, '/', dataChunks.length, '长度:', chunk.length);
+            console.info('[SSE] 即将调用onMessage，数据:', chunk);
+            try {
+              onMessage(chunk);
+              console.info('[SSE] onMessage调用成功');
+            } catch (err) {
+              console.error('[SSE] onMessage调用失败:', JSON.stringify(err));
+            }
+            
+            // 添加小延迟模拟流式效果（可选）
+            if (i < dataChunks.length - 1) {
+              await new Promise<void>((resolve) => setTimeout(resolve, 50));
+            }
+          }
+        } else {
+          console.warn('[SSE] 未找到任何数据块');
+        }
+
+        console.info('[SSE] 流式请求成功完成');
+        onComplete();
+      } else {
+        console.error('[SSE] HTTP错误，状态码:', response.responseCode);
+        onError(new Error(`HTTP Error: ${response.responseCode}`));
+      }
+
     } catch (err) {
-      console.error('HttpUtil streamRequest failed:', JSON.stringify(err));
+      console.error('[SSE] 流式请求失败:', JSON.stringify(err));
       onError(new Error('Stream request failed'));
+    } finally {
       httpRequest.destroy();
+      console.info('[SSE] HTTP连接已关闭');
     }
   }
 }

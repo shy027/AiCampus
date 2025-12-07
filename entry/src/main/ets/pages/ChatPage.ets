@@ -203,7 +203,7 @@ struct ChatPage {
       Column() {
         ForEach(this.messages, (msg: Message, index: number) => {
           this.buildMessageItem(msg, index);
-        }, (msg: Message, index: number) => `${index}`)
+        }, (msg: Message, index: number) => `${index}-${msg.content?.length || 0}-${msg.isStreaming}`)
       }
       .width('100%')
       .padding(16)
@@ -250,13 +250,19 @@ struct ChatPage {
           .margin({ right: 8 })
 
         Column() {
-          Text(msg.content)
-            .fontSize(15)
-            .fontColor('#333')
-            .padding(12)
-            .borderRadius(12)
-            .backgroundColor('#FFF')
-            .maxLines(999)
+          // 气泡容器
+          Column() {
+            // 暂时使用Text组件，避免MarkdownView的Web加载延迟
+            Text(msg.content || '')
+              .fontSize(15)
+              .fontColor('#333')
+              .lineHeight(24)
+              .width('100%')
+          }
+          .backgroundColor('#FFF')
+          .borderRadius(12)
+          .padding(12)
+          .width('100%')
 
           // 流式输出中的提示
           if (msg.isStreaming) {
@@ -420,6 +426,8 @@ struct ChatPage {
    * 发送流式消息
    */
   private async sendStreamMessage(text: string): Promise<void> {
+    console.info('[ChatPage] 开始发送流式消息:', text);
+    
     // 创建一个空的 AI 消息，用于逐步追加内容
     const aiMessage = new Message();
     aiMessage.role = 'ai';
@@ -429,20 +437,29 @@ struct ChatPage {
     this.messages = [...this.messages, aiMessage];
 
     const messageIndex = this.messages.length - 1;
+    console.info('[ChatPage] 创建AI消息占位，索引:', messageIndex);
 
     await ChatService.chatStream(
       this.userId,
       text,
       this.sessionId,
       // onMessage: 接收到数据片段
+      // onMessage: 接收到数据片段
       (data: string) => {
-        // 追加内容
-        if (this.messages[messageIndex].content) {
-          this.messages[messageIndex].content += data;
-        } else {
-          this.messages[messageIndex].content = data;
-        }
-        this.messages = [...this.messages]; // 触发更新
+        console.info('[ChatPage] 收到流式数据片段，长度:', data.length);
+        console.debug('[ChatPage] 数据内容:', data);
+        
+        // 创建新的消息对象以触发UI更新
+        const currentMsg = this.messages[messageIndex];
+        const newMsg = new Message(currentMsg);
+        newMsg.content = (currentMsg.content || '') + data;
+        
+        console.debug('[ChatPage] 更新后内容总长度:', newMsg.content.length);
+        
+        // 更新数组中的对象
+        this.messages[messageIndex] = newMsg;
+        // 触发数组引用的更新检测
+        this.messages = [...this.messages];
 
         // 滚动到底部
         setTimeout(() => {
@@ -451,6 +468,7 @@ struct ChatPage {
       },
       // onComplete: 完成
       () => {
+        console.info('[ChatPage] 流式消息接收完成');
         this.messages[messageIndex].isStreaming = false;
         this.messages = [...this.messages]; // 触发更新
         
@@ -459,6 +477,7 @@ struct ChatPage {
       },
       // onError: 错误
       (error: Error) => {
+        console.error('[ChatPage] 流式消息接收失败:', error.message);
         this.messages[messageIndex].isStreaming = false;
         this.messages[messageIndex].content = `错误: ${error.message}`;
         this.messages = [...this.messages]; // 触发更新
