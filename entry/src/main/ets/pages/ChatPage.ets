@@ -7,6 +7,11 @@ import { Message } from '../models/Message';
 import { LoginResponse } from '../models/User';
 import { AssistantResponse } from '../models/AssistantResponse';
 
+interface AgentOption {
+  id: string;
+  name: string;
+}
+
 @Entry
 @Component
 struct ChatPage {
@@ -19,6 +24,14 @@ struct ChatPage {
   @State sessionTitle: string = '未命名会话'; // 会话标题
   @State isEditingTitle: boolean = false; // 是否正在编辑标题
   @State editingTitle: string = ''; // 编辑中的标题
+  @State selectedAgent: string = 'scholarship'; // 当前选择的智能体
+
+  private agentOptions: AgentOption[] = [
+    { id: 'scholarship', name: '奖助助手' },
+    { id: 'course', name: '课程助手' },
+    { id: 'travel', name: '出行助手' },
+    { id: 'thesis', name: '论文助手' }
+  ];
 
   private scroller: Scroller = new Scroller();
   private userId: string = '';
@@ -39,7 +52,7 @@ struct ChatPage {
       // 新会话，添加欢迎消息
       const welcomeMsg = new Message();
       welcomeMsg.role = 'ai';
-      welcomeMsg.content = '你好！我是智能校园助手，有什么可以帮助你的吗？';
+      welcomeMsg.content = '你好！我是智能校园助手，有什么可以帮助你的呢？';
       welcomeMsg.createTime = new Date().toISOString();
       this.messages.push(welcomeMsg);
     }
@@ -57,6 +70,10 @@ struct ChatPage {
       // 加载会话详情
       const session = await SessionService.getSessionDetail(this.sessionId);
       this.sessionTitle = session.title || '未命名会话';
+      if (session.modelName) {
+        const matched = this.agentOptions.find(item => item.id === session.modelName);
+        this.selectedAgent = matched ? matched.id : 'scholarship';
+      }
 
       // 加载消息历史
       const messages = await SessionService.getSessionMessages(this.sessionId);
@@ -134,7 +151,7 @@ struct ChatPage {
           .padding({ left: 16, right: 16 })
           .borderRadius(18)
           .onClick(() => {
-            router.pushUrl({ 
+            router.pushUrl({
               url: 'pages/HistoryPage',
               params: { currentSessionId: this.sessionId }
             });
@@ -191,10 +208,44 @@ struct ChatPage {
       .width('100%')
       .padding({ left: 16, right: 16, bottom: 12 })
       .alignItems(VerticalAlign.Center)
+
+      // 智能体选择
+      this.buildAgentSelector()
     }
     .width('100%')
     .backgroundColor('#FFF')
     .shadow({ radius: 4, color: '#00000010' })
+  }
+
+  /**
+   * 构建智能体选择
+   */
+  @Builder
+  buildAgentSelector() {
+    Column() {
+      Text('选择智能体后再提问（不同智能体负责不同问题）')
+        .fontSize(12)
+        .fontColor('#999')
+        .margin({ bottom: 6 })
+
+      Row() {
+        ForEach(this.agentOptions, (item: AgentOption) => {
+          Button(item.name)
+            .fontSize(13)
+            .height(34)
+            .margin({ right: 8 })
+            .padding({ left: 14, right: 14 })
+            .borderRadius(16)
+            .backgroundColor(this.selectedAgent === item.id ? '#1E90FF' : '#E3F2FD')
+            .fontColor(this.selectedAgent === item.id ? '#FFF' : '#1E90FF')
+            .onClick(() => {
+              this.selectedAgent = item.id;
+            })
+        }, (item: AgentOption) => item.id)
+      }
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, bottom: 12 })
   }
 
   /**
@@ -255,7 +306,7 @@ struct ChatPage {
         Column() {
           // 气泡容器
           Column() {
-            // 暂时使用Text组件，避免MarkdownView的Web加载延迟
+            // 暂时使用 Text 组件，避免 MarkdownView 的 Web 加载延迟
             Text(msg.content || '')
               .fontSize(15)
               .fontColor('#333')
@@ -384,7 +435,7 @@ struct ChatPage {
       // 添加错误提示消息
       const errorMsg = new Message();
       errorMsg.role = 'ai';
-      errorMsg.content = '抱歉，消息发送失败，请稍后重试。';
+      errorMsg.content = '抱歉，消息发送失败，请稍后重试';
       errorMsg.createTime = new Date().toISOString();
       this.messages = [...this.messages, errorMsg];
     } finally {
@@ -396,7 +447,7 @@ struct ChatPage {
    * 发送非流式消息
    */
   private async sendNormalMessage(text: string): Promise<void> {
-    const response: AssistantResponse = await ChatService.chat(this.userId, text, this.sessionId);
+    const response: AssistantResponse = await ChatService.chat(this.userId, text, this.selectedAgent, this.sessionId);
 
     // 从响应中获取 sessionId（如果是新会话）
     if (response.sessionId && !this.sessionId) {
@@ -429,8 +480,8 @@ struct ChatPage {
    * 发送流式消息
    */
   private async sendStreamMessage(text: string): Promise<void> {
-    console.info('[ChatPage] 开始发送流式消息:', text);
-    
+    console.info('[ChatPage] 开始发送流式消息', text);
+
     // 创建一个空的 AI 消息，用于逐步追加内容
     const aiMessage = new Message();
     aiMessage.role = 'ai';
@@ -440,25 +491,25 @@ struct ChatPage {
     this.messages = [...this.messages, aiMessage];
 
     const messageIndex = this.messages.length - 1;
-    console.info('[ChatPage] 创建AI消息占位，索引:', messageIndex);
+    console.info('[ChatPage] 创建AI消息占位，索引', messageIndex);
 
     await ChatService.chatStream(
       this.userId,
       text,
+      this.selectedAgent,
       this.sessionId,
       // onMessage: 接收到数据片段
-      // onMessage: 接收到数据片段
       (data: string) => {
-        console.info('[ChatPage] 收到流式数据片段，长度:', data.length);
+        console.info('[ChatPage] 收到流式数据片段，长度', data.length);
         console.debug('[ChatPage] 数据内容:', data);
-        
+
         // 创建新的消息对象以触发UI更新
         const currentMsg = this.messages[messageIndex];
         const newMsg = new Message(currentMsg);
         newMsg.content = (currentMsg.content || '') + data;
-        
-        console.debug('[ChatPage] 更新后内容总长度:', newMsg.content.length);
-        
+
+        console.debug('[ChatPage] 更新后内容总长度', newMsg.content.length);
+
         // 更新数组中的对象
         this.messages[messageIndex] = newMsg;
         // 触发数组引用的更新检测
@@ -474,7 +525,7 @@ struct ChatPage {
         console.info('[ChatPage] 流式消息接收完成');
         this.messages[messageIndex].isStreaming = false;
         this.messages = [...this.messages]; // 触发更新
-        
+
         // 注意：流式接口无法直接获取 sessionId
         // 如果需要 sessionId，建议在第一次对话时使用非流式接口
       },
@@ -534,18 +585,18 @@ struct ChatPage {
     this.messages = [];
     this.isEditingTitle = false; // 重置编辑状态
     this.editingTitle = '';
-    
+
     // 使用 setTimeout 确保状态完全重置
     setTimeout(() => {
       // 创建新的消息数组（强制触发状态更新）
       const welcomeMsg = new Message();
       welcomeMsg.role = 'ai';
-      welcomeMsg.content = '你好！我是智能校园助手，有什么可以帮助你的吗？';
+      welcomeMsg.content = '你好！我是智能校园助手，有什么可以帮助你的呢？';
       welcomeMsg.createTime = new Date().toISOString();
-      
+
       // 重新赋值消息数组
       this.messages = [welcomeMsg];
-      
+
       // 滚动到顶部
       setTimeout(() => {
         this.scroller.scrollEdge(Edge.Top);

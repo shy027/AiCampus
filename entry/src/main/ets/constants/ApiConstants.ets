@@ -26,9 +26,9 @@ export class ApiConstants {
   static readonly SESSION_DELETE: string = '/api/session/{id}';
   static readonly SESSION_MESSAGES: string = '/api/session/{id}/messages';
 
-  // AI 对话接口（v2）
-  static readonly CHAT_API: string = '/api/v2/chat';
-  static readonly CHAT_STREAM_API: string = '/api/v2/chat/stream';
+  // AI 对话接口（四个智能体独立）
+  static readonly AGENT_CHAT_API: string = '/api/agent/{type}/chat';
+  static readonly AGENT_CHAT_STREAM_API: string = '/api/agent/{type}/chat/stream';
 
   // 百炼 Agent 接口
   static readonly BAILIAN_AGENT_CALL: string = '/ai/bailian/agent/call';

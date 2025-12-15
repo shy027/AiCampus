@@ -18,15 +18,16 @@ export class ChatService {
   /**
    * 调用 AI 对话接口（非流式）
    */
-  static async chat(userId: string, message: string, sessionId?: number): Promise<AssistantResponse> {
+  static async chat(userId: string, message: string, agentType: string, sessionId?: number): Promise<AssistantResponse> {
     const params = new ChatRequestParams();
     params.userId = userId;
     params.message = message;
     if (sessionId) {
       params.sessionId = sessionId;
     }
+    const path = ApiConstants.AGENT_CHAT_API.replace('{type}', agentType);
     // 使用 postDirect 因为接口直接返回 AssistantResponse，不包装在 Result 中
-    return await HttpUtil.postDirect<AssistantResponse>(ApiConstants.CHAT_API, params);
+    return await HttpUtil.postDirect<AssistantResponse>(path, params);
   }
 
   /**
@@ -35,6 +36,7 @@ export class ChatService {
   static async chatStream(
     userId: string,
     message: string,
+    agentType: string,
     sessionId: number | undefined,
     onMessage: (data: string) => void,
     onComplete: () => void,
@@ -47,8 +49,9 @@ export class ChatService {
     if (sessionId) {
       params['sessionId'] = sessionId;
     }
+    const path = ApiConstants.AGENT_CHAT_STREAM_API.replace('{type}', agentType);
     await HttpUtil.streamRequest(
-      ApiConstants.CHAT_STREAM_API,
+      path,
       params,
       onMessage,
       onComplete,

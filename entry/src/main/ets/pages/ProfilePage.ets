@@ -1,5 +1,6 @@
 import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
+import { picker } from '@kit.CoreFileKit';
 import { UserService } from '../services/UserService';
 import { AuthService } from '../services/AuthService';
 import { StorageUtil } from '../utils/StorageUtil';
@@ -465,14 +466,41 @@ struct ProfilePage {
   /**
    * 修改头像
    */
-  private changeAvatar(): void {
-    promptAction.showToast({ 
-      message: '头像上传功能开发中，敬请期待！',
-      duration: 2000
-    });
-    // TODO: 实现文件选择和上传功能
-    // 鸿蒙的文件选择需要使用 picker API
-    // 由于较为复杂，暂时显示提示信息
+  private async changeAvatar(): Promise<void> {
+    try {
+      // 配置选择器选项
+      const photoSelectOptions = new picker.PhotoSelectOptions();
+      photoSelectOptions.MIMEType = picker.PhotoViewMIMETypes.IMAGE_TYPE;
+      photoSelectOptions.maxSelectNumber = 1;
+      
+      // 创建选择器并选择图片
+      const photoPicker = new picker.PhotoViewPicker();
+      const selectResult: picker.PhotoSelectResult = await photoPicker.select(photoSelectOptions);
+      
+      if (!selectResult || !selectResult.photoUris || selectResult.photoUris.length === 0) {
+        promptAction.showToast({ message: '未选择图片' });
+        return;
+      }
+      
+      const imageUri = selectResult.photoUris[0];
+      console.info('[Avatar] 选择的图片URI:', imageUri);
+      
+      // 显示上传提示
+      promptAction.showToast({ message: '正在上传头像...' });
+      
+      // 上传头像
+      const AvatarService = await import('../services/AvatarService');
+      await AvatarService.AvatarService.uploadAvatar(imageUri);
+      
+      // 重新加载用户信息
+      await this.loadUserInfo();
+      
+      promptAction.showToast({ message: '头像已更新' });
+    } catch (err) {
+      const error = err as Error;
+      console.error('[Avatar] 上传失败:', JSON.stringify(err));
+      promptAction.showToast({ message: `上传失败: ${error.message}` });
+    }
   }
 
   /**

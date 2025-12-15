@@ -262,8 +262,7 @@ export class HttpUtil {
             } catch (err) {
               console.error('[SSE] onMessage调用失败:', JSON.stringify(err));
             }
-            
-            // 添加小延迟模拟流式效果（15ms = 更快的打字速度）
+
             if (i < dataChunks.length - 1) {
               await new Promise<void>((resolve) => setTimeout(resolve, 50));
             }
